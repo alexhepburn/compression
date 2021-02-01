@@ -10,11 +10,12 @@ import tensorflow_probability as tfp
 class CompressionModel(tf.keras.Model, metaclass=abc.ABCMeta):
   """Base class for coding experiment."""
 
-  def __init__(self, source, lmbda, distortion_loss, **kwargs):
+  def __init__(self, source, lmbda, distortion_loss, p_x_alpha, **kwargs):
     super().__init__(**kwargs)
     self.source = source
     self.lmbda = float(lmbda)
     self.distortion_loss = str(distortion_loss)
+    self.p_x_alpha = p_x_alpha
 
   ############################################################################
   # In TF <= 2.4, `Model` doesn't aggregate variables from nested `Module`s.
@@ -97,7 +98,15 @@ class CompressionModel(tf.keras.Model, metaclass=abc.ABCMeta):
       self.alpha = self.force_alpha
     with tf.GradientTape() as tape:
       rates, distortions = self.train_losses(x)
-      losses = rates + self.lmbda * distortions
+      # Multiply by p(x), p(x)^-1 or nothing
+      if self.p_x_alpha == 0:
+        losses = rates + self.lmbda * distortions
+      else:
+        px = self.source.prob(x)
+        if self.p_x_alpha == 1:
+          losses = rates + self.lmbda * px * distortions
+        elif self.p_x_alpha == -1:
+          losses = rates + self.lmbda * 1/px * distortions
       loss = tf.math.reduce_mean(losses)
     variables = self.trainable_variables
     gradients = tape.gradient(loss, variables)
